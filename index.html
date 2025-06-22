@@ -1,519 +1,519 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>IC Upload with Bank Use Only Watermark</title>
-<style>
-  body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    margin: 20px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 15px;
-    background: #f9f9f9;
-    color: #222;
-  }
-
-  h1 {
-    margin-bottom: 10px;
-  }
-
-  #controls {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    justify-content: center;
-    width: 100%;
-    max-width: 800px;
-  }
-
-  input[type="file"] {
-    padding: 8px 12px;
-    font-size: 16px;
-    cursor: pointer;
-    border-radius: 6px;
-    border: 1.5px solid #ccc;
-    background: #fff;
-    transition: border-color 0.3s;
-  }
-  input[type="file"]:hover,
-  input[type="file"]:focus {
-    border-color: #0078d4;
-    outline: none;
-  }
-
-  button {
-    padding: 10px 22px;
-    font-size: 16px;
-    cursor: pointer;
-    border: none;
-    border-radius: 6px;
-    background-color: #0078d4;
-    color: white;
-    box-shadow: 0 4px 8px rgb(0 120 212 / 0.3);
-    transition: background-color 0.3s, box-shadow 0.3s;
-    user-select: none;
-  }
-  button:hover,
-  button:focus {
-    background-color: #005a9e;
-    box-shadow: 0 6px 14px rgb(0 120 212 / 0.5);
-    outline: none;
-  }
-  button:active {
-    background-color: #004578;
-    box-shadow: none;
-  }
-
-  canvas {
-    border: 2px solid #333;
-    border-radius: 12px;
-    max-width: 100%;
-    max-height: 70vh;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.15);
-    cursor: move;
-    touch-action: none;
-  }
-
-  #textSettings {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-    max-width: 900px;
-    align-items: center;
-    justify-content: center;
-  }
-  #textSettings > * {
-    font-size: 16px;
-  }
-  label {
-    user-select: none;
-  }
-
-  @media (max-width: 480px) {
-    button, input[type="file"] {
-      flex: 1 1 100%;
-      max-width: 100%;
-    }
-    #textSettings {
-      flex-direction: column;
-    }
-  }
-</style>
-</head>
-<body>
-
-<h1>Upload IC and Add Bank Use Only Watermark</h1>
-
-<div id="controls">
-  <input type="file" id="imageLoader" accept="image/*" aria-label="Upload IC image" title="Upload IC image (JPG, PNG)" />
-  <button id="addTextBtn" title="Add 'For Bank Use Only' text overlay">Add Text</button>
-  <button id="clearCanvasBtn" title="Clear all content">Clear Canvas</button>
-  <button id="downloadBtn" title="Download final image">Download Image</button>
-</div>
-
-<canvas id="canvas" width="800" height="450" aria-label="Image editor canvas"></canvas>
-
-<div id="textSettings" aria-label="Text customization options" style="display:none;">
-  <label for="textInput">Text:</label>
-  <input type="text" id="textInput" value="For Bank Use Only" />
-  
-  <label for="fontSizeInput">Font Size:</label>
-  <input type="number" id="fontSizeInput" value="32" min="10" max="100" />
-  
-  <label for="fontColorInput">Font Color:</label>
-  <input type="color" id="fontColorInput" value="#333333" />
-  
-  <label for="lineThicknessInput" title="Border line thickness (px)">Line Thickness:</label>
-  <input type="number" id="lineThicknessInput" value="2" min="1" max="10" step="0.5" style="width:70px" />
-  
-  <label for="lineOffsetInput" title="Vertical offset of border lines (px)">Line Offset:</label>
-  <input type="number" id="lineOffsetInput" value="0" min="0" max="20" step="1" style="width:70px" />
-  
-  <button id="updateTextBtn" title="Update selected text and border lines">Update Text</button>
-</div>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/4.5.0/fabric.min.js"></script>
-<script>
-  const canvas = new fabric.Canvas('canvas', { preserveObjectStacking: true });
-  canvas.setBackgroundColor('white', canvas.renderAll.bind(canvas));
-
-  const textLinesMap = new Map();
-  let watermarkGroup = null;
-  let icImage = null;
-  let selectedTextObj = null;
-
-  // Get current line thickness and offset from inputs (fallback defaults)
-  function getLineSettings() {
-    const thickness = parseFloat(document.getElementById('lineThicknessInput').value);
-    const offset = parseFloat(document.getElementById('lineOffsetInput').value);
-    return {
-      thickness: isNaN(thickness) ? 2 : thickness,
-      offset: isNaN(offset) ? 0 : offset,
-    };
-  }
-
-  // Create watermark pattern canvas
-  function createWatermarkPattern(text = 'For Bank Use Only', fontSize = 24, color = 'rgba(0,0,0,0.05)', angle = -45) {
-    const patternCanvas = document.createElement('canvas');
-    const size = 200;
-    patternCanvas.width = size;
-    patternCanvas.height = size;
-    const ctx = patternCanvas.getContext('2d');
-
-    ctx.clearRect(0, 0, size, size);
-    ctx.fillStyle = color;
-    ctx.font = `${fontSize}px Arial Black, Arial, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.translate(size / 2, size / 2);
-    ctx.rotate((Math.PI / 180) * angle);
-    ctx.fillText(text, 0, 0);
-
-    return patternCanvas;
-  }
-
-  // Add watermark background
-  function addWatermark() {
-    if (watermarkGroup) {
-      canvas.remove(watermarkGroup);
-      watermarkGroup = null;
-    }
-    if (!icImage) return;
-
-    const patternCanvas = createWatermarkPattern();
-
-    const pattern = new fabric.Pattern({
-      source: patternCanvas,
-      repeat: 'repeat',
-      patternTransform: [1, 0, 0, 1, 0, 0]
-    });
-
-    const rect = new fabric.Rect({
-      left: icImage.left - icImage.width * icImage.scaleX / 2,
-      top: icImage.top - icImage.height * icImage.scaleY / 2,
-      width: icImage.width * icImage.scaleX,
-      height: icImage.height * icImage.scaleY,
-      fill: pattern,
-      selectable: false,
-      evented: false,
-      opacity: 0.3,
-    });
-
-    watermarkGroup = rect;
-    canvas.add(rect);
-    rect.moveTo(0);
-    if (icImage) icImage.bringToFront();
-
-    canvas.requestRenderAll();
-  }
-
-  // Add border lines (top & bottom) to text object with customizable thickness & offset
-  function addBorderLines(textObj) {
-    textObj.setCoords();
-    const bbox = textObj.getBoundingRect();
-    const { thickness, offset } = getLineSettings();
-
-    // Apply vertical offset
-    const topY = bbox.top - offset;
-    const bottomY = bbox.top + bbox.height + offset;
-
-    const topLine = new fabric.Line([bbox.left, topY, bbox.left + bbox.width, topY], {
-      stroke: 'black',
-      strokeWidth: thickness,
-      selectable: false,
-      evented: false,
-    });
-
-    const bottomLine = new fabric.Line([bbox.left, bottomY, bbox.left + bbox.width, bottomY], {
-      stroke: 'black',
-      strokeWidth: thickness,
-      selectable: false,
-      evented: false,
-    });
-
-    canvas.add(topLine, bottomLine);
-    canvas.bringToFront(textObj);
-
-    textLinesMap.set(textObj, { topLine, bottomLine });
-  }
-
-  // Update border lines position & style on transform or UI update
-  function updateBorderLines(textObj) {
-    const lines = textLinesMap.get(textObj);
-    if (!lines) return;
-
-    const coords = textObj.calcACoords();
-    const { thickness, offset } = getLineSettings();
-
-    // Calculate vector and perpendicular vector for rotated text
-    const vectorTop = { x: coords.tr.x - coords.tl.x, y: coords.tr.y - coords.tl.y };
-    const lengthTop = Math.sqrt(vectorTop.x ** 2 + vectorTop.y ** 2);
-    if (lengthTop === 0) return; // Prevent division by zero
-    const unitVectorTop = { x: vectorTop.x / lengthTop, y: vectorTop.y / lengthTop };
-    const perpVector = { x: -unitVectorTop.y, y: unitVectorTop.x };
-
-    lines.topLine.set({
-      x1: coords.tl.x + perpVector.x * -offset,
-      y1: coords.tl.y + perpVector.y * -offset,
-      x2: coords.tr.x + perpVector.x * -offset,
-      y2: coords.tr.y + perpVector.y * -offset,
-      strokeWidth: thickness,
-    });
-
-    lines.bottomLine.set({
-      x1: coords.bl.x + perpVector.x * offset,
-      y1: coords.bl.y + perpVector.y * offset,
-      x2: coords.br.x + perpVector.x * offset,
-      y2: coords.br.y + perpVector.y * offset,
-      strokeWidth: thickness,
-    });
-
-    canvas.bringToFront(textObj);
-    lines.topLine.bringToFront();
-    lines.bottomLine.bringToFront();
-
-    canvas.requestRenderAll();
-  }
-
-  // Remove lines when text removed
-  function removeBorderLines(textObj) {
-    const lines = textLinesMap.get(textObj);
-    if (!lines) return;
-
-    canvas.remove(lines.topLine);
-    canvas.remove(lines.bottomLine);
-    textLinesMap.delete(textObj);
-  }
-
-// Load IC image — now selectable and scalable
-document.getElementById('imageLoader').addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-
-  const reader = new FileReader();
-  reader.onload = (event) => {
-    fabric.Image.fromURL(event.target.result, (img) => {
-      canvas.getObjects().forEach(obj => canvas.remove(obj));
-      canvas.setBackgroundColor('white', canvas.renderAll.bind(canvas));
-
-      const scaleRatio = (canvas.width / img.width) * 0.75;
-      img.set({
-        scaleX: scaleRatio,
-        scaleY: scaleRatio,
-        left: canvas.width / 2,
-        top: canvas.height / 2,
-        originX: 'center',
-        originY: 'center',
-        selectable: true,
-        evented: true,
-        hasRotatingPoint: true,
-        lockUniScaling: false,
-        minScaleLimit: 0.1,
-        maxScaleLimit: 5,
-      });
-      canvas.add(img);
-      icImage = img;
-
-      addWatermark();
-
-      selectedTextObj = null;
-      updateTextSettingsVisibility(false);
-
-      // Bring watermark behind image
-      if (watermarkGroup) {
-        watermarkGroup.moveTo(0);
-        icImage.bringToFront();
-      }
-
-      // Update watermark when IC image is transformed
-      icImage.on('scaling moving rotating', () => {
-        updateWatermarkPosition();
-        canvas.requestRenderAll();
-      });
-    });
-  };
-  reader.readAsDataURL(file);
-});
-
-// Update watermark size and position to match IC image
-function updateWatermarkPosition() {
-  if (!watermarkGroup || !icImage) return;
-
-  watermarkGroup.set({
-    left: icImage.left - (icImage.width * icImage.scaleX) / 2,
-    top: icImage.top - (icImage.height * icImage.scaleY) / 2,
-    width: icImage.width * icImage.scaleX,
-    height: icImage.height * icImage.scaleY,
-  });
-  canvas.requestRenderAll();
-}
-
-
-  // Add editable text + border lines
-  document.getElementById('addTextBtn').addEventListener('click', () => {
-    if (!icImage) {
-      alert('Please upload an IC image first.');
-      return;
-    }
-    const text = new fabric.IText('For Bank Use Only', {
-      left: canvas.width / 2,
-      top: canvas.height / 2,
-      fontFamily: 'Arial Black, Arial, sans-serif',
-      fontSize: 32,
-      fill: '#333',
-      lockUniScaling: true,
-      originX: 'center',
-      originY: 'center',
-      editable: true,
-      cursorWidth: 2,
-      cursorColor: '#0078d4',
-    });
-
-    canvas.add(text);
-    canvas.setActiveObject(text);
-    selectedTextObj = text;
-    updateTextSettings(selectedTextObj);
-    updateTextSettingsVisibility(true);
-    text.enterEditing();
-    text.selectAll();
-
-    addBorderLines(text);
-  });
-
-  // Clear canvas button
-  document.getElementById('clearCanvasBtn').addEventListener('click', () => {
-    if (confirm('Are you sure you want to clear all content?')) {
-      canvas.getObjects('i-text').forEach(textObj => removeBorderLines(textObj));
-      canvas.getObjects().forEach(obj => canvas.remove(obj));
-      canvas.setBackgroundColor('white', canvas.renderAll.bind(canvas));
-      watermarkGroup = null;
-      icImage = null;
-      selectedTextObj = null;
-      updateTextSettingsVisibility(false);
-    }
-  });
-
-  // Text settings UI handlers
-  function updateTextSettings(textObj) {
-    if (!textObj) return;
-    document.getElementById('textInput').value = textObj.text;
-    document.getElementById('fontSizeInput').value = textObj.fontSize;
-    document.getElementById('fontColorInput').value = textObj.fill;
-
-    const { thickness, offset } = getLineSettings();
-    document.getElementById('lineThicknessInput').value = thickness;
-    document.getElementById('lineOffsetInput').value = offset;
-  }
-
-  function updateTextSettingsVisibility(visible) {
-    document.getElementById('textSettings').style.display = visible ? 'flex' : 'none';
-  }
-
-  // Update selected text and border lines on button click
-  document.getElementById('updateTextBtn').addEventListener('click', () => {
-    if (!selectedTextObj) return;
-    const newText = document.getElementById('textInput').value.trim();
-    const newSize = parseInt(document.getElementById('fontSizeInput').value, 10);
-    const newColor = document.getElementById('fontColorInput').value;
-
-    if (newText) selectedTextObj.text = newText;
-    if (newSize && newSize >= 10 && newSize <= 100) selectedTextObj.fontSize = newSize;
-    if (newColor) selectedTextObj.fill = newColor;
-
-    selectedTextObj.setCoords();
-    updateBorderLines(selectedTextObj);
-    canvas.requestRenderAll();
-  });
-
-  // Update border lines in real time if thickness or offset inputs change
-  ['lineThicknessInput', 'lineOffsetInput'].forEach(id => {
-    document.getElementById(id).addEventListener('input', () => {
-      if (selectedTextObj) {
-        updateBorderLines(selectedTextObj);
-      }
-    });
-  });
-
-  // Canvas selection events
-  canvas.on('selection:created', (e) => {
-    if (e.target.type === 'i-text') {
-      selectedTextObj = e.target;
-      updateTextSettings(selectedTextObj);
-      updateTextSettingsVisibility(true);
-    } else {
-      selectedTextObj = null;
-      updateTextSettingsVisibility(false);
-    }
-  });
-
-  canvas.on('selection:updated', (e) => {
-    if (e.target.type === 'i-text') {
-      selectedTextObj = e.target;
-      updateTextSettings(selectedTextObj);
-      updateTextSettingsVisibility(true);
-    } else {
-      selectedTextObj = null;
-      updateTextSettingsVisibility(false);
-    }
-  });
-
-  canvas.on('selection:cleared', () => {
-    selectedTextObj = null;
-    updateTextSettingsVisibility(false);
-  });
-
-  // Update border lines on text transform events
-  ['moving', 'scaling', 'rotating'].forEach(eventName => {
-    canvas.on('object:' + eventName, (e) => {
-      if (e.target.type === 'i-text') {
-        updateBorderLines(e.target);
-      }
-    });
-  });
-
-  // Remove border lines when text removed
-  canvas.on('object:removed', (e) => {
-    if (textLinesMap.has(e.target)) {
-      removeBorderLines(e.target);
-      if (selectedTextObj === e.target) {
-        selectedTextObj = null;
-        updateTextSettingsVisibility(false);
-      }
-    }
-  });
-
-  // Download final image
-  document.getElementById('downloadBtn').addEventListener('click', () => {
-    if (!icImage) {
-      alert('Please upload an IC image before downloading.');
-      return;
-    }
-
-    canvas.discardActiveObject();
-    canvas.renderAll();
-
-    const dataURL = canvas.toDataURL({
-      format: 'png',
-      quality: 1,
-      multiplier: 1,
-    });
-
-    const link = document.createElement('a');
-    link.href = dataURL;
-    link.download = 'ic_with_bank_use_only.png';
-    link.click();
-  });
-
-  // Prevent selecting IC image accidentally
-  canvas.on('object:selected', (e) => {
-    if (e.target === icImage) {
-      canvas.discardActiveObject();
-    }
-  });
-</script>
-
-</body>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>IC Upload with Bank Use Only Watermark</title>
+		<style>
+			body {
+				font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+				margin: 20px;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				gap: 15px;
+				background: #f9f9f9;
+				color: #222;
+			}
+			
+			h1 {
+				margin-bottom: 10px;
+			}
+			
+			#controls {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 10px;
+				justify-content: center;
+				width: 100%;
+				max-width: 800px;
+			}
+			
+			input[type="file"] {
+				padding: 8px 12px;
+				font-size: 16px;
+				cursor: pointer;
+				border-radius: 6px;
+				border: 1.5px solid #ccc;
+				background: #fff;
+				transition: border-color 0.3s;
+			}
+			input[type="file"]:hover,
+			input[type="file"]:focus {
+				border-color: #0078d4;
+				outline: none;
+			}
+			
+			button {
+				padding: 10px 22px;
+				font-size: 16px;
+				cursor: pointer;
+				border: none;
+				border-radius: 6px;
+				background-color: #0078d4;
+				color: white;
+				box-shadow: 0 4px 8px rgb(0 120 212 / 0.3);
+				transition: background-color 0.3s, box-shadow 0.3s;
+				user-select: none;
+			}
+			button:hover,
+			button:focus {
+				background-color: #005a9e;
+				box-shadow: 0 6px 14px rgb(0 120 212 / 0.5);
+				outline: none;
+			}
+			button:active {
+				background-color: #004578;
+				box-shadow: none;
+			}
+			
+			canvas {
+				border: 2px solid #333;
+				border-radius: 12px;
+				max-width: 100%;
+				max-height: 70vh;
+				box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+				cursor: move;
+				touch-action: none;
+			}
+			
+			#textSettings {
+				display: flex;
+				gap: 10px;
+				flex-wrap: wrap;
+				max-width: 900px;
+				align-items: center;
+				justify-content: center;
+			}
+			#textSettings > * {
+				font-size: 16px;
+			}
+			label {
+				user-select: none;
+			}
+			
+			@media (max-width: 480px) {
+				button, input[type="file"] {
+					flex: 1 1 100%;
+					max-width: 100%;
+				}
+				#textSettings {
+					flex-direction: column;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		
+		<h1>Upload IC and Add Bank Use Only Watermark</h1>
+		
+		<div id="controls">
+			<input type="file" id="imageLoader" accept="image/*" aria-label="Upload IC image" title="Upload IC image (JPG, PNG)" />
+			<button id="addTextBtn" title="Add 'For Bank Use Only' text overlay">Add Text</button>
+			<button id="clearCanvasBtn" title="Clear all content">Clear Canvas</button>
+			<button id="downloadBtn" title="Download final image">Download Image</button>
+		</div>
+		
+		<canvas id="canvas" width="800" height="450" aria-label="Image editor canvas"></canvas>
+		
+		<div id="textSettings" aria-label="Text customization options" style="display:none;">
+			<label for="textInput">Text:</label>
+			<input type="text" id="textInput" value="For Bank Use Only" />
+			
+			<label for="fontSizeInput">Font Size:</label>
+			<input type="number" id="fontSizeInput" value="32" min="10" max="100" />
+			
+			<label for="fontColorInput">Font Color:</label>
+			<input type="color" id="fontColorInput" value="#333333" />
+			
+			<label for="lineThicknessInput" title="Border line thickness (px)">Line Thickness:</label>
+			<input type="number" id="lineThicknessInput" value="2" min="1" max="10" step="0.5" style="width:70px" />
+			
+			<label for="lineOffsetInput" title="Vertical offset of border lines (px)">Line Offset:</label>
+			<input type="number" id="lineOffsetInput" value="0" min="0" max="20" step="1" style="width:70px" />
+			
+			<button id="updateTextBtn" title="Update selected text and border lines">Update Text</button>
+		</div>
+		
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/4.5.0/fabric.min.js"></script>
+		<script>
+			const canvas = new fabric.Canvas('canvas', { preserveObjectStacking: true });
+			canvas.setBackgroundColor('white', canvas.renderAll.bind(canvas));
+			
+			const textLinesMap = new Map();
+			let watermarkGroup = null;
+			let icImage = null;
+			let selectedTextObj = null;
+			
+			// Get current line thickness and offset from inputs (fallback defaults)
+			function getLineSettings() {
+				const thickness = parseFloat(document.getElementById('lineThicknessInput').value);
+				const offset = parseFloat(document.getElementById('lineOffsetInput').value);
+				return {
+					thickness: isNaN(thickness) ? 2 : thickness,
+					offset: isNaN(offset) ? 0 : offset,
+				};
+			}
+			
+			// Create watermark pattern canvas
+			function createWatermarkPattern(text = 'For Bank Use Only', fontSize = 24, color = 'rgba(0,0,0,0.05)', angle = -45) {
+				const patternCanvas = document.createElement('canvas');
+				const size = 200;
+				patternCanvas.width = size;
+				patternCanvas.height = size;
+				const ctx = patternCanvas.getContext('2d');
+				
+				ctx.clearRect(0, 0, size, size);
+				ctx.fillStyle = color;
+				ctx.font = `${fontSize}px Arial Black, Arial, sans-serif`;
+				ctx.textAlign = 'center';
+				ctx.textBaseline = 'middle';
+				ctx.translate(size / 2, size / 2);
+				ctx.rotate((Math.PI / 180) * angle);
+				ctx.fillText(text, 0, 0);
+				
+				return patternCanvas;
+			}
+			
+			// Add watermark background
+			function addWatermark() {
+				if (watermarkGroup) {
+					canvas.remove(watermarkGroup);
+					watermarkGroup = null;
+				}
+				if (!icImage) return;
+				
+				const patternCanvas = createWatermarkPattern();
+				
+				const pattern = new fabric.Pattern({
+					source: patternCanvas,
+					repeat: 'repeat',
+					patternTransform: [1, 0, 0, 1, 0, 0]
+				});
+				
+				const rect = new fabric.Rect({
+					left: icImage.left - icImage.width * icImage.scaleX / 2,
+					top: icImage.top - icImage.height * icImage.scaleY / 2,
+					width: icImage.width * icImage.scaleX,
+					height: icImage.height * icImage.scaleY,
+					fill: pattern,
+					selectable: false,
+					evented: false,
+					opacity: 0.3,
+				});
+				
+				watermarkGroup = rect;
+				canvas.add(rect);
+				rect.moveTo(0);
+				if (icImage) icImage.bringToFront();
+				
+				canvas.requestRenderAll();
+			}
+			
+			// Add border lines (top & bottom) to text object with customizable thickness & offset
+			function addBorderLines(textObj) {
+				textObj.setCoords();
+				const bbox = textObj.getBoundingRect();
+				const { thickness, offset } = getLineSettings();
+				
+				// Apply vertical offset
+				const topY = bbox.top - offset;
+				const bottomY = bbox.top + bbox.height + offset;
+				
+				const topLine = new fabric.Line([bbox.left, topY, bbox.left + bbox.width, topY], {
+					stroke: 'black',
+					strokeWidth: thickness,
+					selectable: false,
+					evented: false,
+				});
+				
+				const bottomLine = new fabric.Line([bbox.left, bottomY, bbox.left + bbox.width, bottomY], {
+					stroke: 'black',
+					strokeWidth: thickness,
+					selectable: false,
+					evented: false,
+				});
+				
+				canvas.add(topLine, bottomLine);
+				canvas.bringToFront(textObj);
+				
+				textLinesMap.set(textObj, { topLine, bottomLine });
+			}
+			
+			// Update border lines position & style on transform or UI update
+			function updateBorderLines(textObj) {
+				const lines = textLinesMap.get(textObj);
+				if (!lines) return;
+				
+				const coords = textObj.calcACoords();
+				const { thickness, offset } = getLineSettings();
+				
+				// Calculate vector and perpendicular vector for rotated text
+				const vectorTop = { x: coords.tr.x - coords.tl.x, y: coords.tr.y - coords.tl.y };
+				const lengthTop = Math.sqrt(vectorTop.x ** 2 + vectorTop.y ** 2);
+				if (lengthTop === 0) return; // Prevent division by zero
+				const unitVectorTop = { x: vectorTop.x / lengthTop, y: vectorTop.y / lengthTop };
+				const perpVector = { x: -unitVectorTop.y, y: unitVectorTop.x };
+				
+				lines.topLine.set({
+					x1: coords.tl.x + perpVector.x * -offset,
+					y1: coords.tl.y + perpVector.y * -offset,
+					x2: coords.tr.x + perpVector.x * -offset,
+					y2: coords.tr.y + perpVector.y * -offset,
+					strokeWidth: thickness,
+				});
+				
+				lines.bottomLine.set({
+					x1: coords.bl.x + perpVector.x * offset,
+					y1: coords.bl.y + perpVector.y * offset,
+					x2: coords.br.x + perpVector.x * offset,
+					y2: coords.br.y + perpVector.y * offset,
+					strokeWidth: thickness,
+				});
+				
+				canvas.bringToFront(textObj);
+				lines.topLine.bringToFront();
+				lines.bottomLine.bringToFront();
+				
+				canvas.requestRenderAll();
+			}
+			
+			// Remove lines when text removed
+			function removeBorderLines(textObj) {
+				const lines = textLinesMap.get(textObj);
+				if (!lines) return;
+				
+				canvas.remove(lines.topLine);
+				canvas.remove(lines.bottomLine);
+				textLinesMap.delete(textObj);
+			}
+			
+			// Load IC image — now selectable and scalable
+			document.getElementById('imageLoader').addEventListener('change', (e) => {
+				const file = e.target.files[0];
+				if (!file) return;
+				
+				const reader = new FileReader();
+				reader.onload = (event) => {
+					fabric.Image.fromURL(event.target.result, (img) => {
+						canvas.getObjects().forEach(obj => canvas.remove(obj));
+						canvas.setBackgroundColor('white', canvas.renderAll.bind(canvas));
+						
+						const scaleRatio = (canvas.width / img.width) * 0.75;
+						img.set({
+							scaleX: scaleRatio,
+							scaleY: scaleRatio,
+							left: canvas.width / 2,
+							top: canvas.height / 2,
+							originX: 'center',
+							originY: 'center',
+							selectable: true,
+							evented: true,
+							hasRotatingPoint: true,
+							lockUniScaling: false,
+							minScaleLimit: 0.1,
+							maxScaleLimit: 5,
+						});
+						canvas.add(img);
+						icImage = img;
+						
+						addWatermark();
+						
+						selectedTextObj = null;
+						updateTextSettingsVisibility(false);
+						
+						// Bring watermark behind image
+						if (watermarkGroup) {
+							watermarkGroup.moveTo(0);
+							icImage.bringToFront();
+						}
+						
+						// Update watermark when IC image is transformed
+						icImage.on('scaling moving rotating', () => {
+							updateWatermarkPosition();
+							canvas.requestRenderAll();
+						});
+					});
+				};
+				reader.readAsDataURL(file);
+			});
+			
+			// Update watermark size and position to match IC image
+			function updateWatermarkPosition() {
+				if (!watermarkGroup || !icImage) return;
+				
+				watermarkGroup.set({
+					left: icImage.left - (icImage.width * icImage.scaleX) / 2,
+					top: icImage.top - (icImage.height * icImage.scaleY) / 2,
+					width: icImage.width * icImage.scaleX,
+					height: icImage.height * icImage.scaleY,
+				});
+				canvas.requestRenderAll();
+			}
+			
+			
+			// Add editable text + border lines
+			document.getElementById('addTextBtn').addEventListener('click', () => {
+				if (!icImage) {
+					alert('Please upload an IC image first.');
+					return;
+				}
+				const text = new fabric.IText('For Bank Use Only', {
+					left: canvas.width / 2,
+					top: canvas.height / 2,
+					fontFamily: 'Arial Black, Arial, sans-serif',
+					fontSize: 32,
+					fill: '#333',
+					lockUniScaling: true,
+					originX: 'center',
+					originY: 'center',
+					editable: true,
+					cursorWidth: 2,
+					cursorColor: '#0078d4',
+				});
+				
+				canvas.add(text);
+				canvas.setActiveObject(text);
+				selectedTextObj = text;
+				updateTextSettings(selectedTextObj);
+				updateTextSettingsVisibility(true);
+				text.enterEditing();
+				text.selectAll();
+				
+				addBorderLines(text);
+			});
+			
+			// Clear canvas button
+			document.getElementById('clearCanvasBtn').addEventListener('click', () => {
+				if (confirm('Are you sure you want to clear all content?')) {
+					canvas.getObjects('i-text').forEach(textObj => removeBorderLines(textObj));
+					canvas.getObjects().forEach(obj => canvas.remove(obj));
+					canvas.setBackgroundColor('white', canvas.renderAll.bind(canvas));
+					watermarkGroup = null;
+					icImage = null;
+					selectedTextObj = null;
+					updateTextSettingsVisibility(false);
+				}
+			});
+			
+			// Text settings UI handlers
+			function updateTextSettings(textObj) {
+				if (!textObj) return;
+				document.getElementById('textInput').value = textObj.text;
+				document.getElementById('fontSizeInput').value = textObj.fontSize;
+				document.getElementById('fontColorInput').value = textObj.fill;
+				
+				const { thickness, offset } = getLineSettings();
+				document.getElementById('lineThicknessInput').value = thickness;
+				document.getElementById('lineOffsetInput').value = offset;
+			}
+			
+			function updateTextSettingsVisibility(visible) {
+				document.getElementById('textSettings').style.display = visible ? 'flex' : 'none';
+			}
+			
+			// Update selected text and border lines on button click
+			document.getElementById('updateTextBtn').addEventListener('click', () => {
+				if (!selectedTextObj) return;
+				const newText = document.getElementById('textInput').value.trim();
+				const newSize = parseInt(document.getElementById('fontSizeInput').value, 10);
+				const newColor = document.getElementById('fontColorInput').value;
+				
+				if (newText) selectedTextObj.text = newText;
+				if (newSize && newSize >= 10 && newSize <= 100) selectedTextObj.fontSize = newSize;
+				if (newColor) selectedTextObj.fill = newColor;
+				
+				selectedTextObj.setCoords();
+				updateBorderLines(selectedTextObj);
+				canvas.requestRenderAll();
+			});
+			
+			// Update border lines in real time if thickness or offset inputs change
+			['lineThicknessInput', 'lineOffsetInput'].forEach(id => {
+				document.getElementById(id).addEventListener('input', () => {
+					if (selectedTextObj) {
+						updateBorderLines(selectedTextObj);
+					}
+				});
+			});
+			
+			// Canvas selection events
+			canvas.on('selection:created', (e) => {
+				if (e.target.type === 'i-text') {
+					selectedTextObj = e.target;
+					updateTextSettings(selectedTextObj);
+					updateTextSettingsVisibility(true);
+				} else {
+					selectedTextObj = null;
+					updateTextSettingsVisibility(false);
+				}
+			});
+			
+			canvas.on('selection:updated', (e) => {
+				if (e.target.type === 'i-text') {
+					selectedTextObj = e.target;
+					updateTextSettings(selectedTextObj);
+					updateTextSettingsVisibility(true);
+				} else {
+					selectedTextObj = null;
+					updateTextSettingsVisibility(false);
+				}
+			});
+			
+			canvas.on('selection:cleared', () => {
+				selectedTextObj = null;
+				updateTextSettingsVisibility(false);
+			});
+			
+			// Update border lines on text transform events
+			['moving', 'scaling', 'rotating'].forEach(eventName => {
+				canvas.on('object:' + eventName, (e) => {
+					if (e.target.type === 'i-text') {
+						updateBorderLines(e.target);
+					}
+				});
+			});
+			
+			// Remove border lines when text removed
+			canvas.on('object:removed', (e) => {
+				if (textLinesMap.has(e.target)) {
+					removeBorderLines(e.target);
+					if (selectedTextObj === e.target) {
+						selectedTextObj = null;
+						updateTextSettingsVisibility(false);
+					}
+				}
+			});
+			
+			// Download final image
+			document.getElementById('downloadBtn').addEventListener('click', () => {
+				if (!icImage) {
+					alert('Please upload an IC image before downloading.');
+					return;
+				}
+				
+				canvas.discardActiveObject();
+				canvas.renderAll();
+				
+				const dataURL = canvas.toDataURL({
+					format: 'png',
+					quality: 1,
+					multiplier: 1,
+				});
+				
+				const link = document.createElement('a');
+				link.href = dataURL;
+				link.download = 'ic_with_bank_use_only.png';
+				link.click();
+			});
+			
+			// Prevent selecting IC image accidentally
+			canvas.on('object:selected', (e) => {
+				if (e.target === icImage) {
+					canvas.discardActiveObject();
+				}
+			});
+		</script>
+		
+	</body>
 </html>
