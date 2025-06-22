@@ -34,4 +34,7 @@ This project is open source and free to use.
 https://yapweijun1996.github.io/Bank-Use-Image-Editor-v1/
 
 ## Preview
-<img width="1395" alt="Screenshot 2025-06-22 at 2 42 44 PM" src="https://github.com/user-attachments/assets/c0fb3b71-d41c-40df-8061-daffcf74cc39" />
+
+<img width="1178" alt="Screenshot 2025-06-22 at 2 43 44 PM" src="https://github.com/user-attachments/assets/d3334f52-f9e5-4c70-a7a1-5c84f28ed28e" />
+
+
