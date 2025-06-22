@@ -288,39 +288,69 @@
     textLinesMap.delete(textObj);
   }
 
-  // Load IC image
-  document.getElementById('imageLoader').addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+// Load IC image — now selectable and scalable
+document.getElementById('imageLoader').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      fabric.Image.fromURL(event.target.result, (img) => {
-        canvas.getObjects().forEach(obj => canvas.remove(obj));
-        canvas.setBackgroundColor('white', canvas.renderAll.bind(canvas));
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    fabric.Image.fromURL(event.target.result, (img) => {
+      canvas.getObjects().forEach(obj => canvas.remove(obj));
+      canvas.setBackgroundColor('white', canvas.renderAll.bind(canvas));
 
-        const scaleRatio = (canvas.width / img.width) * 0.75;
-        img.set({
-          scaleX: scaleRatio,
-          scaleY: scaleRatio,
-          left: canvas.width / 2,
-          top: canvas.height / 2,
-          originX: 'center',
-          originY: 'center',
-          selectable: false,
-          evented: false,
-        });
-        canvas.add(img);
-        icImage = img;
-
-        addWatermark();
-
-        selectedTextObj = null;
-        updateTextSettingsVisibility(false);
+      const scaleRatio = (canvas.width / img.width) * 0.75;
+      img.set({
+        scaleX: scaleRatio,
+        scaleY: scaleRatio,
+        left: canvas.width / 2,
+        top: canvas.height / 2,
+        originX: 'center',
+        originY: 'center',
+        selectable: true,
+        evented: true,
+        hasRotatingPoint: true,
+        lockUniScaling: false,
+        minScaleLimit: 0.1,
+        maxScaleLimit: 5,
       });
-    };
-    reader.readAsDataURL(file);
+      canvas.add(img);
+      icImage = img;
+
+      addWatermark();
+
+      selectedTextObj = null;
+      updateTextSettingsVisibility(false);
+
+      // Bring watermark behind image
+      if (watermarkGroup) {
+        watermarkGroup.moveTo(0);
+        icImage.bringToFront();
+      }
+
+      // Update watermark when IC image is transformed
+      icImage.on('scaling moving rotating', () => {
+        updateWatermarkPosition();
+        canvas.requestRenderAll();
+      });
+    });
+  };
+  reader.readAsDataURL(file);
+});
+
+// Update watermark size and position to match IC image
+function updateWatermarkPosition() {
+  if (!watermarkGroup || !icImage) return;
+
+  watermarkGroup.set({
+    left: icImage.left - (icImage.width * icImage.scaleX) / 2,
+    top: icImage.top - (icImage.height * icImage.scaleY) / 2,
+    width: icImage.width * icImage.scaleX,
+    height: icImage.height * icImage.scaleY,
   });
+  canvas.requestRenderAll();
+}
+
 
   // Add editable text + border lines
   document.getElementById('addTextBtn').addEventListener('click', () => {
