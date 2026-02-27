@@ -1254,31 +1254,29 @@
 			canvas.requestRenderAll();
 		}
 
-		// Add watermark — spans full IC diagonal (bottom-left → top-right), bank SOP style
+		// Add watermark — small text at top-left corner of IC, bank SOP style
 		document.getElementById('addTextBtn').addEventListener('click', () => {
 			if (!icImage) {
 				showToast('Please upload an IC image first.', 'error');
 				return;
 			}
 
-			// ── Displayed IC dimensions ──
+			// IC image top-left corner on canvas
 			const imgW = icImage.width * icImage.scaleX;
 			const imgH = icImage.height * icImage.scaleY;
+			const icLeft = icImage.left - imgW / 2;
+			const icTop = icImage.top - imgH / 2;
 
-			// Diagonal length and angle of the IC (adapts to any aspect ratio)
-			const diagonal = Math.sqrt(imgW * imgW + imgH * imgH);
-			// Negative angle → "/" orientation (bottom-left to top-right)
-			const diagAngleDeg = -(Math.atan2(imgH, imgW) * (180 / Math.PI));
+			const autoFontSize = 14;
+			const PAD = 4; // minimal inset from IC edges
 
-			// Step 1: create text at IC centre with a base size so Fabric measures text.width
-			const BASE_SIZE = 24;
 			const text = new fabric.IText('For Bank Use Only', {
-				left: icImage.left,   // IC centre (originX: 'center')
-				top: icImage.top,    // IC centre (originY: 'center')
+				left: icImage.left,  // start at IC centre
+				top: icImage.top,
 				fontFamily: 'Arial Black, Arial, sans-serif',
-				fontSize: BASE_SIZE,
+				fontSize: autoFontSize,
 				fill: '#333333',
-				angle: diagAngleDeg,   // match IC diagonal exactly
+				angle: -30,
 				lockUniScaling: true,
 				originX: 'center',
 				originY: 'center',
@@ -1287,17 +1285,25 @@
 				cursorColor: '#6366f1',
 			});
 
-			// Step 2: scale font so text spans ~50% of IC diagonal (readable, not oversized)
-			const scaleFactor = (diagonal * 0.5) / text.width;
-			const autoFontSize = Math.round(Math.min(Math.max(BASE_SIZE * scaleFactor, 10), 36));
-			text.set('fontSize', autoFontSize);
+			// Add to canvas FIRST so Fabric fully computes layout
+			canvas.add(text);
+			text.setCoords();
+
+			// Now measure the accurate bbox on canvas
+			const bbox = text.getBoundingRect();
+
+			// Shift text so bbox top-left = IC top-left + PAD
+			const shiftX = (icLeft + PAD) - bbox.left;
+			const shiftY = (icTop + PAD) - bbox.top;
+			text.set({
+				left: text.left + shiftX,
+				top: text.top + shiftY,
+			});
 			text.setCoords();
 
 			// Sync sidebar field
 			document.getElementById('fontSizeInput').value = autoFontSize;
 
-			// Text is already centred on IC — both ends land on the IC corners automatically
-			canvas.add(text);
 			canvas.setActiveObject(text);
 			selectedTextObj = text;
 			updateTextSettings(selectedTextObj);
